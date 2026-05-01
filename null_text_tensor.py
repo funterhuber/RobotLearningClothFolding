@@ -1,7 +1,7 @@
 import torch
 from transformers import CLIPTextModel, CLIPTokenizer
 
-model_id = "openai/clip-vit-large-patch14"
+model_id = "openai/clip-vit-base-patch16"
 tokenizer = CLIPTokenizer.from_pretrained(model_id)
 text_encoder = CLIPTextModel.from_pretrained(model_id)
 
