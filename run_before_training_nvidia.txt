@@ -1,0 +1,8 @@
+pip install uv
+export PATH="$HOME/.local/bin:$PATH"
+uv venv --python 3.12
+source .venv/bin/activate
+uv pip install "lerobot[multi_task_dit,feetech,dataset,training] @ git+https://github.com/huggingface/lerobot.git"
+export HF_TOKEN=YOURTOKEN`
+sudo apt update 
+sudo apt install -y ffmpeg

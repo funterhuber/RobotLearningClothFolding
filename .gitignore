@@ -22,7 +22,6 @@ Thumbs.db
 
 # 6. Data & Models (Don't push gigabytes to GitHub!)
 *.zarr
-*.pt
 *.pth
 *.ckpt
 data/
