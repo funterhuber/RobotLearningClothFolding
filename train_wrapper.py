@@ -1,61 +1,71 @@
-import torch
-import torch.nn as nn
+"""Train multi_task_dit with the CLIP text tower replaced by a constant vector.
+
+Our task is fixed, so the language conditioning is constant. We monkey-patch
+`CLIPTextEncoder` in the policy module so the heavy CLIP text model is never
+loaded and a fixed learned vector is returned instead. Then we hand off to the
+standard LeRobot CLI entry point.
+"""
+
+import os
 import sys
 
-# Import the standard LeRobot entry point
-from lerobot.scripts.train import train_cli, main as lerobot_main
+import torch
+import torch.nn as nn
+
+# Patch BEFORE importing the train script, so that when the policy is built
+# inside train(), it picks up our replacement class.
+from lerobot.policies.multi_task_dit import modeling_multi_task_dit as mtd
+
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_TEXT_TENSOR_PATH = os.path.join(_SCRIPT_DIR, "null_text_tensor.pt")
+
+
+def _load_constant_features(projection_dim: int) -> torch.Tensor:
+    """Load the precomputed CLIP embedding and reduce to [projection_dim]."""
+    t = torch.load(_TEXT_TENSOR_PATH, map_location="cpu", weights_only=True)
+    # Saved shape: [1, 77, 512] (last_hidden_state). Collapse leading dims to [512].
+    while t.dim() > 1:
+        t = t.mean(dim=0)
+    if t.shape[-1] != projection_dim:
+        raise ValueError(
+            f"null_text_tensor last dim {t.shape[-1]} != projection_dim {projection_dim}"
+        )
+    return t.float()
 
 
 class DummyTextEncoder(nn.Module):
-    def __init__(self, tensor_path="null_text_tensor.pt"):
+    """Drop-in replacement for CLIPTextEncoder that returns a constant vector.
+
+    Matches the original interface:
+      - __init__(model_name, projection_dim)
+      - forward(input_ids, attention_mask) -> Tensor of shape [B, projection_dim]
+    """
+
+    def __init__(self, model_name: str = "openai/clip-vit-base-patch16", projection_dim: int = 512):
         super().__init__()
-        # Load the saved tensor
-        null_tensor = torch.load(tensor_path)
+        self.model_name = model_name
+        self.projection_dim = projection_dim
+        # Fixed precomputed CLIP embedding. Buffer -> moves with .to(device), no grads.
+        self.register_buffer("constant_features", _load_constant_features(projection_dim))
 
-        # register_buffer is crucial: it ensures LeRobot's internal code
-        # automatically moves this tensor to the GPU alongside the vision models!
-        self.register_buffer("null_tensor", null_tensor)
-
-    def forward(self, input_ids, **kwargs):
-        # 1. Grab the batch size dynamically from whatever LeRobot passed us
+    def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         batch_size = input_ids.shape[0]
+        # expand() does not allocate -- it's a view.
+        return self.constant_features.unsqueeze(0).expand(batch_size, -1)
 
-        # 2. Expand our [1, 77, 768] tensor -> [batch_size, 77, 768]
-        # This uses zero extra VRAM because .expand() just creates memory pointers.
-        expanded_tensor = self.null_tensor.expand(batch_size, -1, -1)
 
-        # 3. Wrap it in a dummy class so LeRobot gets the exact object structure it expects
-        class MockOutput:
-            def __init__(self, hidden_state):
-                self.last_hidden_state = hidden_state
-
-        return MockOutput(expanded_tensor)
+def _patch():
+    print("[adjusted_training] Replacing CLIPTextEncoder with DummyTextEncoder.")
+    mtd.CLIPTextEncoder = DummyTextEncoder
 
 
 def main():
-    # 1. Parse standard LeRobot CLI arguments
-    print("Intercepting LeRobot configuration...")
-    cfg = train_cli()
+    _patch()
+    # Import here so the patch is in place before any policy is constructed.
+    from lerobot.scripts.lerobot_train import train
 
-    # --- THE MONKEY PATCH ---
-    print("Swapping CLIP Text Tower for VRAM-saving Dummy Encoder...")
-
-    # Replace LeRobot text encoder by dummy.
-    # Path to the text encoder might vary slightly (e.g., cfg.policy.text_encoder or cfg.policy.model.text_encoder).
-    # If the script throws an attribute error here, just print(cfg) to find the exact path.
-    if hasattr(cfg.policy, 'text_encoder'):
-        cfg.policy.text_encoder = DummyTextEncoder("null_text_tensor.pt")
-    elif hasattr(cfg.policy, 'model') and hasattr(cfg.policy.model, 'text_encoder'):
-        cfg.policy.model.text_encoder = DummyTextEncoder("null_text_tensor.pt")
-    else:
-        print("Warning: Could not automatically locate the text_encoder in the config.")
-        print("You may need to adjust the attribute path in train_wrapper.py.")
-
-    print("Swap complete. Handing control back to LeRobot training loop...")
-    # ------------------------
-
-    # 2. Run the normal LeRobot training loop
-    lerobot_main(cfg)
+    # train() is decorated with @parser.wrap(), so it parses sys.argv itself.
+    train()
 
 
 if __name__ == "__main__":
