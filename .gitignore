@@ -1,0 +1,30 @@
+# 1. Virtual Environments (NEVER commit these)
+.venv/
+venv/
+env/
+
+# 2. Python Cache (Junk files Python creates)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 3. Jupyter Notebooks (Hidden states)
+.ipynb_checkpoints/
+
+# 4. OS generated files
+.DS_Store
+.DS_Store?
+Thumbs.db
+
+# 5. IDE settings (VSCode, PyCharm, etc.)
+.vscode/
+.idea/
+
+# 6. Data & Models (Don't push gigabytes to GitHub!)
+*.zarr
+*.pt
+*.pth
+*.ckpt
+data/
+datasets/
+models/
