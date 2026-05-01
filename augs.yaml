@@ -1,0 +1,30 @@
+dataset:
+  image_transforms:
+    enable: true
+    max_num_transforms: 3
+    tfs:
+      brightness:
+        type: ColorJitter
+        kwargs:
+          brightness: [0.75, 1.25]
+      contrast:
+        type: ColorJitter
+        kwargs:
+          contrast: [0.6, 1.4]
+      saturation:
+        type: ColorJitter
+        kwargs:
+          saturation: [0.8, 1.2]
+      hue:
+        type: ColorJitter
+        kwargs:
+          hue: [-0.05, 0.05]
+      sharpness:
+        type: SharpnessJitter
+        kwargs:
+          sharpness: [0.6, 1.4]
+      translation:
+        type: RandomAffine
+        kwargs:
+          degrees: 0
+          translate: [0.1, 0.1]
