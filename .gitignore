@@ -2,6 +2,7 @@
 .venv/
 venv/
 env/
+.env
 
 # 2. Python Cache (Junk files Python creates)
 __pycache__/

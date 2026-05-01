@@ -1,0 +1,71 @@
+follower COM3
+leader COM4
+
+lerobot-find-port
+
+lerobot-calibrate `
+    --robot.type=so101_follower `
+    --robot.id=my_awesome_follower_arm `
+    --robot.port=COM3
+
+lerobot-calibrate `
+    --teleop.type=so101_leader `
+    --teleop.port=COM4 `
+    --teleop.id=my_awesome_leader_arm
+
+
+lerobot-teleoperate `
+    --robot.type=so101_follower `
+    --robot.port=COM3 `
+    --robot.id=my_awesome_follower_arm `
+    --teleop.type=so101_leader `
+    --teleop.port=COM4 `
+    --teleop.id=my_awesome_leader_arm `
+    --robot.cameras="{ front: {type: opencv, index_or_path: 1, width: 1920, height: 1080, fps: 30}}" `
+    --display_data=true
+
+
+lerobot-record `
+    --robot.type=so101_follower `
+    --robot.port=COM3 `
+    --robot.id=my_awesome_follower_arm `
+    --robot.cameras="{ front: {type: opencv, index_or_path: 1, width: 1920, height: 1080, fps: 30}}" `
+    --teleop.type=so101_leader `
+    --teleop.port=COM4 `
+    --teleop.id=my_awesome_leader_arm `
+    --display_data=true `
+    --dataset.repo_id=jjr1007/record-test `
+    --dataset.num_episodes=10 `
+    --dataset.single_task="Perform the first fold" `
+    --dataset.streaming_encoding=true `
+    --dataset.encoder_threads=2
+
+
+lerobot-replay `
+    --robot.type=so101_follower `
+    --robot.port=COM3 `
+    --robot.id=my_awesome_follower_arm `
+    --dataset.repo_id=jjr1007/record-test `
+    --dataset.episode=0 # choose the episode you want to replay
+
+
+
+lerobot-rollout `
+  --robot.type=so101_follower `
+  --robot.port=COM3 `
+  --robot.id=my_awesome_follower_arm `
+  --robot.cameras="{front: {type: opencv, index_or_path: 1, width: 640, height: 480, fps: 30}}" `
+  --display_data=true `
+  --strategy.type=sentry `
+  --dataset.repo_id=jjr1007/rollout_dit_01 `
+  --dataset.num_episodes=10 `
+  --dataset.single_task="Perform the first fold" `
+  --dataset.streaming_encoding=true `
+  --dataset.encoder_threads=2 `
+  --policy.path=jjr1007/multitask-dit-01 `
+  --policy.num_inference_steps=10
+
+
+## Flow-matching with Text conditioning removed
+
+python train_wrapper.py  --dataset.repo_id=jjr1007/record-test_5_JR   --output_dir=./outputs/mutitask_dit_training   --batch_size=64   --steps=30000   --save_freq=2000   --log_freq=100   --eval_freq=1000   --policy.type=multi_task_dit   --policy.device=cuda   --policy.horizon=32   --policy.n_action_steps=24   --policy.objective=flow_matching   --policy.timestep_sampling_strategy=beta   --policy.timestep_sampling_alpha=1.5   --policy.timestep_sampling_beta=1.0   --policy.timestep_sampling_s=0.999   --policy.num_integration_steps=100   --policy.integration_method=euler   --policy.sigma_min=0.0   --policy.num_layers=6   --policy.hidden_dim=512   --policy.vision_encoder_name=openai/clip-vit-base-patch16   --policy.image_resize_shape='[224,224]'   --policy.image_crop_shape='[224,224]'   --policy.repo_id="jjr1007/multitask-dit-02" --policy.use_amp=true
