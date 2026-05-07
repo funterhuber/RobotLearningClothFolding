@@ -3,21 +3,13 @@
 """
 Async policy server launcher for multi_task_dit.
 
-Drop this script on your Brev instance and run:
+Usage:
+    python policy_server_wrapper.py [--host 0.0.0.0] [--port 8080] [--fps 30]
 
-    python launch_async_server.py [--host 0.0.0.0] [--port 8080] [--fps 30]
-
-It imports the multi_task_dit policy (triggering @register_subclass) before
-starting lerobot's async policy server, which otherwise rejects unknown
-policy types.
-
-Setup on Brev:
-    pip install 'lerobot[multi-task-dit,async]'
-
-Then on your laptop, open the port forward:
-    brev port-forward <your-brev-machine> -p 8080:8080
-
-And start the robot client pointing at 127.0.0.1:8080.
+The installed lerobot already registers multi_task_dit in SUPPORTED_POLICIES and
+get_policy_class. The only gap is that the async server calls predict_action_chunk
+directly, bypassing select_action, so the temporal observation queues are never
+populated. This script patches predict_action_chunk to call populate_queues first.
 """
 
 import argparse
@@ -45,37 +37,37 @@ def main():
     )
     args = parser.parse_args()
 
-    # ── Step 1: Register multi_task_dit with lerobot's policy factory ──
-    # This import triggers the @PreTrainedConfig.register_subclass("multi_task_dit")
-    # decorator, which adds it to the registry the async server checks.
     try:
-        from lerobot.policies.multi_task_dit import (  # noqa: F401
-            configuration_multi_task_dit,
-            modeling_multi_task_dit,
+        import torch
+        from lerobot.policies.multi_task_dit.modeling_multi_task_dit import MultiTaskDiTPolicy
+        from lerobot.policies.utils import populate_queues
+        from lerobot.utils.constants import ACTION
+    except ImportError as e:
+        print(
+            f"[launcher] ERROR: {e}\n"
+            "Make sure lerobot is installed with multi-task-dit support.",
+            file=sys.stderr,
         )
+        sys.exit(1)
 
-        print("[launcher] multi_task_dit policy registered successfully")
-    except ImportError:
-        # If the above path doesn't work (layout varies by lerobot version),
-        # try the plugin-style import
-        try:
-            import lerobot_policy_multi_task_dit  # noqa: F401
+    # The async server calls predict_action_chunk directly, bypassing select_action.
+    # The batch from the async server includes "action": None (from transition_to_batch),
+    # which matches the empty action deque in self._queues, causing torch.stack([]) to crash.
+    # Replicating what select_action does: drop "action", call _prepare_batch (stacks
+    # individual camera images into OBS_IMAGES), then populate queues before stacking.
+    def _patched_predict_action_chunk(self, batch):
+        self.eval()
+        batch = {k: v for k, v in batch.items() if k != ACTION}
+        batch = self._prepare_batch(batch)
+        populate_queues(self._queues, batch)
+        for k in batch:
+            if k in self._queues:
+                batch[k] = torch.stack(list(self._queues[k]), dim=1)
+        return self._generate_actions(batch)
 
-            print("[launcher] multi_task_dit policy registered via plugin")
-        except ImportError:
-            print(
-                "[launcher] ERROR: Could not import multi_task_dit policy.\n"
-                "Make sure you installed it:\n"
-                "    pip install 'lerobot[multi-task-dit,async]'\n"
-                "or if you have a custom fork, install it in editable mode.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    MultiTaskDiTPolicy.predict_action_chunk = _patched_predict_action_chunk
 
-    # ── Step 2: Build argv for the policy server ──
-    # lerobot's policy_server.py uses its own arg parser, so we reconstruct
-    # sys.argv to pass our settings through.
-    inference_latency = args.inference_latency if args.inference_latency else 1.0 / args.fps
+    inference_latency = args.inference_latency if args.inference_latency is not None else 1.0 / args.fps
 
     sys.argv = [
         "policy_server",
@@ -86,27 +78,18 @@ def main():
         f"--obs_queue_timeout={args.obs_queue_timeout}",
     ]
 
-    # ── Step 3: Start the server ──
     try:
-        from lerobot.async_inference.policy_server import main as server_main
+        from lerobot.async_inference.policy_server import serve as server_main
+    except ImportError as e:
+        print(
+            f"[launcher] ERROR: Could not import policy server: {e}\n"
+            "Make sure async extras are installed: pip install 'lerobot[async]'",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
-        print(f"[launcher] Starting policy server on {args.host}:{args.port} @ {args.fps} FPS")
-        server_main()
-    except ImportError:
-        # Older lerobot versions had a different module path
-        try:
-            from lerobot.scripts.server.policy_server import main as server_main
-
-            print(f"[launcher] Starting policy server on {args.host}:{args.port} @ {args.fps} FPS")
-            server_main()
-        except ImportError:
-            print(
-                "[launcher] ERROR: Could not import policy server.\n"
-                "Make sure async extras are installed:\n"
-                "    pip install 'lerobot[async]'",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    print(f"[launcher] Starting policy server on {args.host}:{args.port} @ {args.fps} FPS")
+    server_main()
 
 
 if __name__ == "__main__":
