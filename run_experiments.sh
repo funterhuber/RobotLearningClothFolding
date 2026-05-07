@@ -97,3 +97,34 @@ python train_wrapper.py \
   --wandb.run_id=run3_small_model_h49_a8
 
 echo "All runs done"
+
+
+
+--dataset.repo_id=jjr1007/5may_lorenzo_merged_1-4_6-12 \
+--output_dir=./outputs/mutitask_dit_training \
+--batch_size=128 \
+--steps=30000 \
+--policy.type=multi_task_dit \
+--policy.device=cuda \
+--policy.horizon=32 \
+--policy.n_action_steps=24 \
+--policy.objective=diffusion \
+--policy.noise_scheduler_type=DDPM \
+--policy.num_train_timesteps=100 \
+--policy.repo_id="HF_USER/multitask-dit-default-args" \
+--wandb.enable=true
+--policy.objective=diffusion \
+--policy.noise_scheduler_type=DDPM \  # or "DDIM"
+--policy.num_train_timesteps=100 \
+--policy.num_inference_steps=10 \  # For faster inference
+--policy.beta_schedule=squaredcos_cap_v2 \  # Noise schedule type
+--policy.prediction_type=epsilon \  # "epsilon" (predict noise) or "sample" (predict clean)
+--policy.clip_sample=true \  # Clip samples during denoising
+--policy.clip_sample_range=1.0  # Clipping range [-x, x] \
+--policy.image_resize_shape=[256,256] \
+--policy.image_crop_is_random=true \
+--policy.num_layers=6 \
+--policy.hidden_dim=512 \
+--policy.num_heads=8  \
+--wandb.project=multitask-dit-experiments \
+--wandb.run_id=run3_small_model_h32_a24_default_params

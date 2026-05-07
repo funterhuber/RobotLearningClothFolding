@@ -80,3 +80,6 @@ lerobot-edit-dataset \
   --new_repo_id lerobot/record-test_lorenzo_1-4-6_merged \
   --operation.type merge \
   --operation.repo_ids "['lerobot/record-test_lorenzo_1','lerobot/record-test_lorenzo_2','lerobot/record-test_lorenzo_3','lerobot/record-test_lorenzo_4','lerobot/record-test_lorenzo_6']"
+
+
+
