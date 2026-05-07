@@ -34,19 +34,16 @@ def _load_constant_features(projection_dim: int) -> torch.Tensor:
 
 
 class DummyTextEncoder(nn.Module):
-    """Drop-in replacement for CLIPTextEncoder that returns a constant vector.
-
-    Matches the original interface:
-      - __init__(model_name, projection_dim)
-      - forward(input_ids, attention_mask) -> Tensor of shape [B, projection_dim]
-    """
-
-    def __init__(self, model_name: str = "openai/clip-vit-base-patch16", projection_dim: int = 512):
+    def __init__(self, model_name="openai/clip-vit-base-patch16", projection_dim=512):
         super().__init__()
-        self.model_name = model_name
+        t = torch.load(_TEXT_TENSOR_PATH, map_location="cpu", weights_only=True)
+        while t.dim() > 1:
+            t = t.mean(dim=0)
+        if t.shape[-1] != projection_dim:
+            proj = nn.Linear(t.shape[-1], projection_dim, bias=False)
+            t = proj(t).detach()
+        self.register_buffer("constant_features", t.float())
         self.projection_dim = projection_dim
-        # Fixed precomputed CLIP embedding. Buffer -> moves with .to(device), no grads.
-        self.register_buffer("constant_features", _load_constant_features(projection_dim))
 
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         batch_size = input_ids.shape[0]
