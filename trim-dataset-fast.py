@@ -31,13 +31,13 @@ import torch
 # Silence libswscale "no accelerated colorspace conversion" warnings (harmless).
 av.logging.set_level(av.logging.ERROR)
 
-N_FIRST = 16
-N_LAST = 48
-GOP = 16  # Source encoder's keyframe interval. Cuts are rounded to multiples of this.
+N_FIRST = 75  # Requested frames to drop at the start; actual cut snaps to the closest keyframe.
+N_LAST = 75   # Requested frames to drop at the end (any frame OK, no keyframe constraint).
+#SOURCE = "jjr1007/may7_TRIMMED_first_50_frames_merged"
 SOURCE = "jjr1007/may7_merged"
-TARGET = "jjr1007/may7_merged_trimmed_part3"
-START_EPISODE = 100
-END_EPISODE = 169
+TARGET = "jjr1007/may7_first16_last48_newMethod"
+START_EPISODE = 0
+END_EPISODE = 254
 TASK = "Fold the cloth twice, one from the closest corner and the second from the second closest corner"
 VIDEO_KEY = "observation.images.front"
 
@@ -70,75 +70,107 @@ writer = new_dataset.writer
 fps = source.fps
 
 
-def gop_aligned_trim_window(total_frames: int, n_first: int, n_last: int, gop: int) -> tuple[int, int]:
-    """Round trim boundaries to GOP keyframes.
-
-    Start: floor(n_first / gop) * gop  → drop a tiny bit less than requested.
-    End:   ceil(n_last / gop)  * gop   → drop a tiny bit more than requested.
-
-    Returns (start_frame_inclusive, end_frame_exclusive).
-    """
-    start_frame = (n_first // gop) * gop
-    end_drop = ((n_last + gop - 1) // gop) * gop
-    return start_frame, total_frames - end_drop
-
-
-def pyav_stream_copy(source_video_path: Path, start_time_s: float, duration_s: float, output_path: Path) -> None:
-    """Extract a segment from a video without re-encoding, using PyAV packet remuxing.
-
-    Equivalent to `ffmpeg -ss <start> -i <in> -t <duration> -c copy -avoid_negative_ts make_zero <out>`
-    but without needing the ffmpeg CLI on PATH. We seek backward to a keyframe, then
-    remux packets in [start_pts, end_pts) into a fresh container, rebasing pts/dts so
-    the output starts at 0.
+def find_closest_keyframe_pts(source_video_path: Path, target_time_s: float, search_window_s: float = 2.0) -> int | None:
+    """Scan a small time window around `target_time_s` and return the pts of the
+    keyframe nearest to it (could be before or after). Returns None if no keyframe
+    is found within the window.
     """
     in_container = av.open(str(source_video_path), mode="r")
-    out_container = av.open(str(output_path), mode="w", options={"movflags": "faststart"})
     try:
         in_stream = in_container.streams.video[0]
-        time_base = in_stream.time_base
+        time_base = float(in_stream.time_base)
+        target_pts = int(round(target_time_s / time_base))
+        upper_pts = int((target_time_s + search_window_s) / time_base)
 
-        start_pts = int(round(start_time_s / float(time_base)))
-        end_pts = int(round((start_time_s + duration_s) / float(time_base)))
-
-        # Seek a hair before our target so we don't miss the keyframe at start_pts.
-        seek_us = max(0, int(start_time_s * 1_000_000) - 1_000_000)
+        # Seek backward by the search window so we can also see keyframes before the target.
+        seek_us = max(0, int((target_time_s - search_window_s) * 1_000_000))
         in_container.seek(seek_us, backward=True, any_frame=False)
+
+        best_pts = None
+        best_dist = None
+        for packet in in_container.demux(in_stream):
+            if packet.pts is None:
+                continue
+            if packet.pts > upper_pts:
+                break
+            if not packet.is_keyframe:
+                continue
+            dist = abs(packet.pts - target_pts)
+            if best_dist is None or dist < best_dist:
+                best_dist = dist
+                best_pts = packet.pts
+            elif packet.pts > target_pts:
+                # Past the target and distance is growing — no need to keep scanning.
+                break
+    finally:
+        in_container.close()
+    return best_pts
+
+
+def pyav_stream_copy(
+    source_video_path: Path,
+    from_ts: float,
+    requested_start_frame: int,
+    requested_end_frame: int,
+    fps: float,
+    output_path: Path,
+) -> tuple[int, int]:
+    """Stream-copy episode-frames [requested_start, requested_end) from the source
+    chunk file into `output_path`, without decoding/re-encoding. The start is snapped
+    to the keyframe closest to `requested_start_frame` (could be a frame or two before
+    or after). The end is whatever frame the encoded segment actually contains.
+
+    Returns the actual (start_frame, end_frame_exclusive) in episode-relative indices,
+    so the caller can slice action/state to match.
+    """
+    requested_start_s = from_ts + requested_start_frame / fps
+    requested_end_s = from_ts + requested_end_frame / fps
+
+    anchor_pts = find_closest_keyframe_pts(source_video_path, requested_start_s)
+    if anchor_pts is None:
+        raise RuntimeError(
+            f"No keyframe found near {requested_start_s:.3f}s in {source_video_path}"
+        )
+
+    in_container = av.open(str(source_video_path), mode="r")
+    out_container = av.open(str(output_path), mode="w", options={"movflags": "faststart"})
+    n_frames_written = 0
+    anchor_dts = None
+    try:
+        in_stream = in_container.streams.video[0]
+        time_base = float(in_stream.time_base)
+        end_pts = int(round(requested_end_s / time_base))
 
         out_stream = out_container.add_stream_from_template(template=in_stream, opaque=True)
         out_stream.time_base = in_stream.time_base
 
-        pts_offset = None
-        dts_offset = None
+        # Seek a hair before the anchor so we don't miss the keyframe itself.
+        seek_us = max(0, int(anchor_pts * time_base * 1_000_000) - 500_000)
+        in_container.seek(seek_us, backward=True, any_frame=False)
 
         for packet in in_container.demux(in_stream):
-            # Demuxer emits a trailing flush packet with no dts; skip it.
             if packet.pts is None or packet.dts is None:
                 continue
-
-            if pts_offset is None:
-                # Wait for the first keyframe at or after our start. Stream copy
-                # cannot begin mid-GOP, and we chose start_pts to land on a keyframe.
-                if packet.pts < start_pts or not packet.is_keyframe:
-                    continue
-                pts_offset = packet.pts
-                dts_offset = packet.dts
-
+            if packet.pts < anchor_pts:
+                continue
+            if anchor_dts is None:
+                if not packet.is_keyframe:
+                    continue  # safety net; shouldn't happen given anchor_pts came from a keyframe
+                anchor_dts = packet.dts
             if packet.pts >= end_pts:
                 break
-
-            packet.pts -= pts_offset
-            packet.dts -= dts_offset
+            packet.pts -= anchor_pts
+            packet.dts -= anchor_dts
             packet.stream = out_stream
             out_container.mux(packet)
+            n_frames_written += 1
     finally:
         out_container.close()
         in_container.close()
 
-    if pts_offset is None:
-        raise RuntimeError(
-            f"No keyframe found at or after pts={start_pts} in {source_video_path}; "
-            f"check that the source encoder really uses GOP={GOP}."
-        )
+    actual_start_frame = round((anchor_pts * time_base - from_ts) * fps)
+    actual_end_frame = actual_start_frame + n_frames_written
+    return actual_start_frame, actual_end_frame
 
 
 def compute_video_stats_from_file(video_path: Path, total_frames: int) -> dict:
@@ -217,31 +249,38 @@ for src_ep_idx in episodes_to_process:
         print(f"Episode {src_ep_idx}: only {total} frames, skipping (too short to trim)")
         continue
 
-    start_frame, end_frame = gop_aligned_trim_window(total, N_FIRST, N_LAST, GOP)
-    if end_frame <= start_frame:
-        print(f"Episode {src_ep_idx}: GOP-aligned trim leaves nothing ({start_frame}..{end_frame}), skipping")
-        continue
+    requested_start = N_FIRST
+    requested_end = total - N_LAST
 
-    n_kept = end_frame - start_frame
-    trimmed_indices = frames[start_frame:end_frame]
-    print(
-        f"Episode {src_ep_idx}: {total} → {n_kept} frames "
-        f"(keep {start_frame}..{end_frame})",
-        end="",
-        flush=True,
-    )
-
-    # 1. ffmpeg stream-copy extract this episode's trimmed segment.
+    # 1. Stream-copy the video segment. The start snaps to the nearest keyframe;
+    #    the end can fall on any frame. The function returns the *actual* episode
+    #    frame range that ended up in the output mp4 so we can keep proprioception aligned.
     source_video = source.root / source.meta.get_video_file_path(src_ep_idx, VIDEO_KEY)
     ep_meta = source.meta.episodes[src_ep_idx]
     from_ts = float(ep_meta[f"videos/{VIDEO_KEY}/from_timestamp"])
-    start_time_s = from_ts + start_frame / fps
-    duration_s = n_kept / fps
 
     temp_dir = Path(tempfile.mkdtemp(dir=new_dataset.root))
     target_ep_idx = writer._meta.total_episodes  # what this episode's index will be in the new dataset
     temp_video = temp_dir / f"{VIDEO_KEY}_{target_ep_idx:03d}.mp4"
-    pyav_stream_copy(source_video, start_time_s, duration_s, temp_video)
+    actual_start, actual_end = pyav_stream_copy(
+        source_video, from_ts, requested_start, requested_end, fps, temp_video
+    )
+
+    if actual_end <= actual_start:
+        print(f"Episode {src_ep_idx}: stream copy produced no frames, skipping")
+        continue
+
+    n_kept = actual_end - actual_start
+    trimmed_indices = frames[actual_start:actual_end]
+    drift_start = actual_start - requested_start
+    drift_end = actual_end - requested_end
+    drift_str = f" (drift start {drift_start:+d}, end {drift_end:+d})" if (drift_start or drift_end) else ""
+    print(
+        f"Episode {src_ep_idx}: {total} → {n_kept} frames "
+        f"(keep {actual_start}..{actual_end}){drift_str}",
+        end="",
+        flush=True,
+    )
 
     # 2. Bulk-fetch action/state from parquet and stuff into a fresh episode buffer.
     rows = source.hf_dataset[trimmed_indices]
@@ -273,5 +312,5 @@ new_dataset.finalize()
 
 # Push once, after finalize
 print("Pushing to HuggingFace Hub...")
-#new_dataset.push_to_hub()
+new_dataset.push_to_hub()
 print("Done! part3 complete.")
