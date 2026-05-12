@@ -17,6 +17,6 @@ recompute_stats(dataset, relative_action=True, chunk_size=50, relative_exclude_j
 
 # 4. Push it back to the Hub
 print("Pushing updates back to the Hub...")
-dataset.repo_id = "jjr1007/may7_first16_last48_newMethod_relative"
+dataset.repo_id = repo_id + "_relative"
 dataset.push_to_hub()
 print("Done!")
