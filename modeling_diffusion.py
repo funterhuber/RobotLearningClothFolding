@@ -42,6 +42,8 @@ from lerobot.policies.utils import (
     populate_queues,
 )
 from lerobot.utils.constants import ACTION, OBS_ENV_STATE, OBS_IMAGES, OBS_STATE
+from transformers import AutoModel
+import torch.nn as nn
 
 
 class DiffusionPolicy(PreTrainedPolicy):
@@ -491,12 +493,17 @@ class DiffusionRgbEncoder(nn.Module):
         if config.vision_backbone.startswith("dinov3"):
             class Dinov3Wrapper(nn.Module):
                 def __init__(self, name):
+                    name = "facebook/dinov3-vitb16-pretrain-lvd1689m"
                     super().__init__()
-                    self.model = torch.hub.load('facebookresearch/dinov3', name)
-                
+                    self.model = AutoModel.from_pretrained(name)
+
                 def forward(self, x):
-                    res = self.model.forward_features(x)
-                    patch_tokens = res['x_norm_patchtokens']
+                    outputs = self.model(pixel_values=x)
+
+                    # Skip CLS token (index 0) AND register tokens
+                    num_registers = self.model.config.num_register_tokens  # typically 4 or 8
+                    patch_tokens = outputs.last_hidden_state[:, 1 + num_registers:, :]
+                    
                     H_out = x.shape[2] // 16
                     W_out = x.shape[3] // 16
                     B, _, C = patch_tokens.shape
