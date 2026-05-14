@@ -28,3 +28,5 @@ Thumbs.db
 data/
 datasets/
 models/
+lerobot/
+outputs/
