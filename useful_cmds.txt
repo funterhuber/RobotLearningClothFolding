@@ -125,3 +125,14 @@ python train_wrapper.py \
   --policy.image_crop_shape='[224,224]' \
   --policy.repo_id="jjr1007/multitask-dit-02" \
   --policy.use_amp=true
+
+
+
+
+python -m lerobot.scripts.lerobot_rollout     --robot.type=so101_follower     --robot.port=/dev/ttyACM0     --robot.id=my_awesome_follower_arm     --robot.cameras="{front: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30}}"     --strategy.type=dagger     --policy.path=jjr1007/diffusion_dino_filtered     --policy.num_inference_steps=10     --device=cuda     --compile_warmup_inferences=5     --fps=20     --interpolation_multiplier=3     --teleop.type=so101_leader     --teleop.id=my_awesome_leader_arm     --teleop.port=/dev/ttyACM1     --strategy.num_episodes=50     --dataset.repo_id=jjr1007/rollout_dino_diffusion --strategy.record_autonomous=true
+
+
+
+jjr1007/rollout_dino_diffusion_20260517_121913
+https://huggingface.co/datasets/jjr1007/rollout_dino_diffusion_20260517_122234
+

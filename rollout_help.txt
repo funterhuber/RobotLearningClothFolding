@@ -4,28 +4,28 @@ usage: lerobot_rollout.py [-h] [--config_path str] [--robot str]
                           [--robot.use_can_fd bool] [--robot.can_bitrate int]
                           [--robot.can_data_bitrate int]
                           [--robot.use_velocity_and_torque bool]
-                          [--robot.motor_config Dict]
-                          [--robot.position_kp List]
-                          [--robot.position_kd List]
-                          [--robot.joint_limits Dict]
+                          [--robot.motor_config dict]
+                          [--robot.position_kp list]
+                          [--robot.position_kd list]
+                          [--robot.joint_limits dict]
                           [--robot.left_arm_config.side [str]]
                           [--robot.left_arm_config.can_interface str]
                           [--robot.left_arm_config.use_can_fd bool]
                           [--robot.left_arm_config.can_bitrate int]
                           [--robot.left_arm_config.can_data_bitrate int]
                           [--robot.left_arm_config.use_velocity_and_torque bool]
-                          [--robot.left_arm_config.motor_config Dict]
-                          [--robot.left_arm_config.position_kp List]
-                          [--robot.left_arm_config.position_kd List]
-                          [--robot.left_arm_config.joint_limits Dict]
+                          [--robot.left_arm_config.motor_config dict]
+                          [--robot.left_arm_config.position_kp list]
+                          [--robot.left_arm_config.position_kd list]
+                          [--robot.left_arm_config.joint_limits dict]
                           [--robot.right_arm_config.side [str]]
                           [--robot.right_arm_config.can_interface str]
                           [--robot.right_arm_config.use_can_fd bool]
                           [--robot.right_arm_config.can_bitrate int]
                           [--robot.right_arm_config.can_data_bitrate int]
                           [--robot.right_arm_config.use_velocity_and_torque bool]
-                          [--robot.right_arm_config.motor_config Dict]
-                          [--robot.right_arm_config.position_kp List]
+                          [--robot.right_arm_config.motor_config dict]
+                          [--robot.right_arm_config.position_kp list]
                           [--robot.right_arm_config.position_kd List]
                           [--robot.right_arm_config.joint_limits Dict]
                           [--robot.left_arm_config.port str]
@@ -967,7 +967,7 @@ OpenArmLeaderConfigBase ['teleop.left_arm_config']:
                         the position-only openarm_mini teleoperator. (default:
                         False)
   --teleop.left_arm_config.position_kp List
-                        TODO(Steven, Pepijn): Not used ... ? MIT control
+                        TODO(Steven, Pepijn): not used ... ? mit control
                         parameters (used when manual_control=False for torque
                         control) List of 8 values: [joint_1, joint_2, joint_3,
                         joint_4, joint_5, joint_6, joint_7, gripper] (default:
@@ -1375,7 +1375,7 @@ EO1Config ['policy']:
   --policy.scheduler_decay_steps int
   --policy.scheduler_decay_lr float
 
-GaussianActorConfig ['policy']:
+gaussianactorConfig ['policy']:
   Policy (loaded from --policy.path via __post_init__)
 
   --policy.n_obs_steps int
